@@ -569,7 +569,211 @@
     };
 
     let roomState = null;
-// ... existing code ... -->
+
+    // =========================================================================
+    // 3. 基礎輔助與詞庫管理函式
+    // =========================================================================
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, c => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[c]));
+    }
+
+    function showToast(msg) {
+      const banner = document.getElementById("toastBanner");
+      if (!banner) return;
+      banner.textContent = msg;
+      banner.classList.remove("hidden");
+      clearTimeout(banner._timer);
+      banner._timer = setTimeout(() => {
+        banner.classList.add("hidden");
+      }, 3600);
+    }
+
+    function getMyPlayerName() {
+      const input = document.getElementById("playerNameInput");
+      const name = (input ? input.value : "").trim();
+      if (!name) {
+        showToast("請先輸入你的玩家 ID！");
+        if (input) input.focus();
+        return "";
+      }
+      localState.playerName = name;
+      saveCustomPreferences();
+      return name;
+    }
+
+    function generateRoomCode() {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      let code = "";
+      for (let i = 0; i < 6; i++) {
+        code += chars[Math.floor(Math.random() * chars.length)];
+      }
+      return code;
+    }
+
+    function loadSavedPreferences() {
+      try {
+        const raw = localStorage.getItem(STORAGE_PREFS_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        if (data.playerName) {
+          localState.playerName = data.playerName;
+          const inp = document.getElementById("playerNameInput");
+          if (inp) inp.value = data.playerName;
+        }
+        if (Array.isArray(data.enabledCats)) {
+          localState.enabledCats = new Set(data.enabledCats);
+        }
+        if (Array.isArray(data.customWords)) {
+          localState.customWords = data.customWords;
+        }
+      } catch (e) {}
+    }
+
+    function saveCustomPreferences() {
+      try {
+        localStorage.setItem(STORAGE_PREFS_KEY, JSON.stringify({
+          playerName: localState.playerName,
+          enabledCats: [...localState.enabledCats],
+          customWords: localState.customWords
+        }));
+      } catch (e) {}
+    }
+
+    function getActiveWordPool() {
+      const pool = [];
+      Object.entries(WORD_CATEGORIES).forEach(([key, cat]) => {
+        if (localState.enabledCats.has(key)) {
+          pool.push(...cat.words);
+        }
+      });
+      if (localState.enabledCats.has("custom") && localState.customWords.length > 0) {
+        pool.push(...localState.customWords);
+      }
+      return [...new Set(pool)];
+    }
+
+    function pickRandomWordsFromActivePool(count) {
+      let pool = getActiveWordPool();
+      if (pool.length < count) {
+        pool = Object.values(WORD_CATEGORIES).flatMap(c => c.words);
+      }
+      const copy = [...pool];
+      const chosen = [];
+      while (chosen.length < count && copy.length > 0) {
+        const idx = Math.floor(Math.random() * copy.length);
+        chosen.push(copy.splice(idx, 1)[0]);
+      }
+      return chosen;
+    }
+
+    function renderCategoryControls() {
+      const container = document.getElementById("categoryCheckboxes");
+      if (container) {
+        const entries = Object.entries(WORD_CATEGORIES).map(([key, cat]) => ({
+          key,
+          label: cat.label
+        }));
+        entries.push({
+          key: "custom",
+          label: `自訂詞庫 (${localState.customWords.length})`
+        });
+
+        container.innerHTML = entries.map(item => `
+          <label class="flex items-center gap-2 bg-slate-900/90 border border-slate-800 hover:border-slate-700 px-2.5 py-2 rounded-lg cursor-pointer select-none">
+            <input type="checkbox" data-cat-key="${item.key}" ${localState.enabledCats.has(item.key) ? "checked" : ""} class="accent-sky-500 rounded cursor-pointer" />
+            <span class="truncate text-slate-200">${escapeHtml(item.label)}</span>
+          </label>
+        `).join("");
+
+        container.querySelectorAll("input[type='checkbox']").forEach(cb => {
+          cb.addEventListener("change", () => {
+            const k = cb.dataset.catKey;
+            if (cb.checked) localState.enabledCats.add(k);
+            else localState.enabledCats.delete(k);
+            saveCustomPreferences();
+            renderCategoryControls();
+          });
+        });
+      }
+
+      const activePool = getActiveWordPool();
+      const countBadge = document.getElementById("activePoolCountBadge");
+      if (countBadge) countBadge.textContent = `${activePool.length} 詞`;
+
+      const customTag = document.getElementById("customWordCountTag");
+      if (customTag) customTag.textContent = `已存 ${localState.customWords.length} 個自訂詞`;
+
+      const preview = document.getElementById("customWordsPreview");
+      if (preview) {
+        preview.innerHTML = localState.customWords.length === 0
+          ? `<span class="text-[11px] text-slate-500">尚未匯入自訂詞語</span>`
+          : localState.customWords.map(w => `
+              <span class="text-[11px] bg-purple-950/50 border border-purple-500/30 text-purple-200 px-2 py-0.5 rounded-md">${escapeHtml(w)}</span>
+            `).join("");
+      }
+    }
+
+    // =========================================================================
+    // 4. 房間狀態儲存與跨視窗 / 跨裝置同步
+    // =========================================================================
+    function loadRoomFromStore(code) {
+      try {
+        const raw = localStorage.getItem(STORAGE_ROOM_PREFIX + code);
+        return raw ? JSON.parse(raw) : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function saveRoomToStore(stateObj, skipRemoteSend = false) {
+      if (!stateObj || !stateObj.roomCode) return;
+      roomState = stateObj;
+      try {
+        localStorage.setItem(STORAGE_ROOM_PREFIX + stateObj.roomCode, JSON.stringify(stateObj));
+      } catch (e) {}
+
+      if (localState.channel) {
+        try {
+          localState.channel.postMessage({ type: "LOCAL_STATE_SYNC", state: stateObj });
+        } catch (e) {}
+      }
+
+      if (!skipRemoteSend) {
+        if (localState.isHost) {
+          broadcastToRemoteClients(stateObj);
+        } else if (localState.hostConn && localState.hostConn.open) {
+          try {
+            localState.hostConn.send({ type: "CLIENT_STATE_UPDATE", state: stateObj });
+          } catch (e) {}
+        }
+      }
+    }
+
+    function startLocalChannelListener(code) {
+      if (localState.channel) {
+        try { localState.channel.close(); } catch (e) {}
+      }
+      if (typeof BroadcastChannel === "undefined") return;
+
+      const ch = new BroadcastChannel("hex_maze_bc_" + code);
+      localState.channel = ch;
+      ch.onmessage = (ev) => {
+        const msg = ev.data;
+        if (!msg) return;
+        if (msg.type === "LOCAL_STATE_SYNC" && msg.state) {
+          roomState = msg.state;
+          if (localState.isHost) {
+            broadcastToRemoteClients(roomState);
+          }
+          renderAll();
+        } else if (msg.type === "PLAYER_LEFT" && msg.playerName && localState.isHost) {
+          removePlayerFromRoom(msg.playerName, "離開了房間");
+        }
+      };
+    }
+
     function broadcastToRemoteClients(stateObj) {
       localState.clientConns = localState.clientConns.filter(c => c && c.open);
       localState.clientConns.forEach(conn => {
@@ -765,6 +969,29 @@
               }
             }
           });
+
+          conn.on("close", () => {
+            showToast("與房主的連線已中斷");
+          });
+
+          conn.on("error", () => {
+            if (!settled) {
+              settled = true;
+              clearTimeout(timer);
+              reject(new Error("無法連線至該房間，請確認房號是否正確"));
+            }
+          });
+        });
+
+        peer.on("error", () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            reject(new Error("找不到該房間或連線失敗，請確認房號"));
+          }
+        });
+      });
+    }
 
     function cleanupNetwork(notifyLeave = false) {
       if (notifyLeave && roomState && localState.playerName) {
