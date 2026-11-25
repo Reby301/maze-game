@@ -1,0 +1,1809 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>迷宮探險隊</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <style>
+    body {
+      font-family: 'Inter', 'Noto Sans TC', sans-serif;
+    }
+
+    .hex-group {
+      cursor: pointer;
+      transition: transform 0.15s ease;
+    }
+
+    .hex-poly {
+      stroke: rgba(248, 250, 252, 0.42);
+      stroke-width: 2;
+      transition: filter 0.15s ease, stroke 0.15s ease, stroke-width 0.15s ease, fill 0.25s ease;
+    }
+
+    .hex-group:hover .hex-poly {
+      filter: brightness(1.18);
+      stroke: #ffffff;
+      stroke-width: 2.8;
+    }
+
+    @keyframes pulseBorder {
+      0%, 100% {
+        stroke: #fde047;
+        stroke-width: 2.8;
+      }
+      50% {
+        stroke: #fef08a;
+        stroke-width: 3.8;
+      }
+    }
+
+    .hex-selectable .hex-poly {
+      stroke: #fde047;
+      stroke-width: 2.8;
+      stroke-dasharray: 6 3;
+      animation: pulseBorder 1.8s infinite ease-in-out;
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col selection:bg-sky-500 selection:text-white">
+
+  <!-- 全域提示訊息條 -->
+  <div id="toastBanner" class="hidden fixed bottom-5 left-1/2 -translate-x-1/2 z-50 bg-slate-800/95 border border-amber-400/70 text-amber-200 px-4 py-2.5 rounded-xl shadow-2xl text-xs sm:text-sm font-medium backdrop-blur-md max-w-[92vw] text-center"></div>
+
+  <!-- 頂部導覽列 -->
+  <header class="bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 py-3 sm:px-6 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-20">
+    <div class="flex items-center gap-3">
+      <span id="connStatusDot" class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" title="系統就緒"></span>
+      <div>
+        <h1 class="text-base sm:text-lg font-bold tracking-wide text-slate-50">
+          迷宮探險隊
+        </h1>
+      </div>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-2">
+      <!-- 房間代碼徽章 -->
+      <div id="roomHeaderBadge" class="hidden items-center gap-2 bg-slate-800/90 border border-slate-700 px-3 py-1.5 rounded-xl text-xs">
+        <span class="text-slate-400">房號：</span>
+        <strong id="headerRoomCode" class="font-mono text-amber-300 tracking-wider text-sm">------</strong>
+        <button id="copyRoomCodeBtn" type="button" class="text-[11px] bg-slate-700 hover:bg-slate-600 text-slate-200 px-2 py-0.5 rounded-md transition cursor-pointer">
+          複製
+        </button>
+      </div>
+
+      <!-- 返回大廳按鈕（遊戲頁顯示） -->
+      <button id="backToLobbyBtn" type="button" class="hidden bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold px-3 py-2 rounded-xl transition cursor-pointer">
+        返回大廳設定
+      </button>
+
+      <!-- 離開房間返回入口按鈕（大廳與遊戲頁顯示） -->
+      <button id="leaveRoomBtn" type="button" class="hidden bg-slate-900 hover:bg-red-950/60 border border-slate-700 hover:border-red-500/40 text-slate-300 hover:text-red-200 text-xs font-semibold px-3 py-2 rounded-xl transition cursor-pointer">
+        切換房間 / ID
+      </button>
+    </div>
+  </header>
+
+  <!-- ==================== 第一頁：輸入ID ＋ 創建房間 ＋ 加入遊戲 ==================== -->
+  <section id="entryPage" class="flex-1 w-full max-w-2xl mx-auto p-4 sm:p-6 flex flex-col justify-center">
+    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 sm:p-8 shadow-2xl space-y-6">
+      <div class="space-y-1.5 text-center">
+        <h2 class="text-xl sm:text-2xl font-bold text-slate-50">歡迎來到六邊形迷宮</h2>
+      </div>
+
+      <div class="space-y-4">
+        <div>
+          <label for="playerNameInput" class="block text-xs font-semibold text-slate-300 mb-1.5">你的玩家 ID</label>
+          <input id="playerNameInput" type="text" maxlength="12" placeholder="例如：探險者A" class="w-full min-w-0 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm sm:text-base text-white focus:outline-none focus:border-sky-400" />
+        </div>
+
+        <div class="pt-1">
+          <button id="createRoomBtn" type="button" class="w-full bg-sky-600 hover:bg-sky-500 active:scale-[0.99] text-white font-bold text-sm sm:text-base py-3.5 px-4 rounded-xl shadow-lg shadow-sky-950/60 transition cursor-pointer leading-snug break-words">
+            建立新房間並進入大廳
+          </button>
+        </div>
+
+        <div class="relative flex py-1 items-center">
+          <div class="flex-grow border-t border-slate-800"></div>
+          <span class="flex-shrink mx-3 text-xs text-slate-500 text-center">或輸入房號加入現有房間</span>
+          <div class="flex-grow border-t border-slate-800"></div>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-2.5">
+          <input id="joinRoomCodeInput" type="text" maxlength="6" placeholder="輸入 6 碼房號" class="w-full sm:flex-1 min-w-0 uppercase font-mono tracking-widest bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm sm:text-base text-amber-300 placeholder:text-slate-500 placeholder:font-sans placeholder:tracking-normal focus:outline-none focus:border-amber-400" />
+          <button id="joinRoomBtn" type="button" class="w-full sm:w-auto bg-amber-600 hover:bg-amber-500 active:scale-[0.99] text-white font-bold text-sm sm:text-base py-3 px-5 rounded-xl shadow-md shadow-amber-950/40 transition cursor-pointer leading-snug">
+            加入遊戲大廳
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 第二頁：遊戲大廳（組隊分組 ＋ 詞庫與地圖設定） ==================== -->
+  <section id="lobbyPage" class="hidden flex-1 w-full max-w-6xl mx-auto p-4 sm:p-6 space-y-5">
+    
+    <!-- 大廳頂部歡迎與房號提示條 -->
+    <div class="bg-slate-900/85 border border-slate-800 rounded-2xl px-4 py-3.5 sm:px-6 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+      <div class="flex flex-wrap items-center gap-2.5">
+        <span class="text-xs font-bold px-2.5 py-1 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">遊戲大廳</span>
+        <span id="lobbyRoomStatus" class="text-xs sm:text-sm font-semibold text-slate-200">房間載入中...</span>
+      </div>
+      <span id="lobbyMyNameTag" class="text-xs text-slate-400">玩家ID：—</span>
+    </div>
+
+    <!-- 房間大廳主設定 -->
+    <div id="roomLobbySection" class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      
+      <!-- 左側：組隊大廳名單 (佔 5 欄) -->
+      <div class="lg:col-span-5 bg-slate-900/85 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col justify-between gap-4 shadow-xl">
+        <div class="space-y-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-base font-bold text-slate-50">1. 組隊大廳分組</h2>
+            <span class="text-xs text-slate-400">點擊按鈕自由切換陣營</span>
+          </div>
+
+          <!-- 情報組區塊 -->
+          <div class="bg-sky-950/25 border border-sky-500/30 rounded-xl p-3.5 space-y-2.5">
+            <div class="flex items-center justify-between gap-2">
+              <div>
+                <h3 class="text-sm font-bold text-sky-300">情報組（知曉完整地圖）</h3>
+                <p class="text-[11px] text-slate-400">每回合給出一組文字提示引導冒險組</p>
+              </div>
+              <button id="joinIntelTeamBtn" type="button" class="bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition cursor-pointer shrink-0">
+                加入情報組
+              </button>
+            </div>
+            <div id="intelTeamList" class="flex flex-wrap gap-2 min-h-[34px] pt-1"></div>
+          </div>
+
+          <!-- 冒險組區塊 -->
+          <div class="bg-purple-950/25 border border-purple-500/30 rounded-xl p-3.5 space-y-2.5">
+            <div class="flex items-center justify-between gap-2">
+              <div>
+                <h3 class="text-sm font-bold text-purple-300">冒險組（空白地圖探索）</h3>
+                <p class="text-[11px] text-slate-400">選擇鄰近文字格的空白板塊推進至出口</p>
+              </div>
+              <button id="joinAdvTeamBtn" type="button" class="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition cursor-pointer shrink-0">
+                加入冒險組
+              </button>
+            </div>
+            <div id="advTeamList" class="flex flex-wrap gap-2 min-h-[34px] pt-1"></div>
+          </div>
+        </div>
+
+        <!-- 開始遊戲按鈕 -->
+        <div class="pt-2 border-t border-slate-800 space-y-2">
+          <button id="startGameBtn" type="button" class="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm sm:text-base py-3 rounded-xl shadow-lg shadow-emerald-950/50 transition cursor-pointer">
+            確認分組與設定，進入遊戲
+          </button>
+          <p class="text-[11px] text-center text-slate-400">
+            需兩組各有至少 1 名玩家即可開局；開始後所有人同步進入棋盤。
+          </p>
+        </div>
+      </div>
+
+      <!-- 右側：地圖規格、分類詞庫（含月亮計劃 300 詞）與批次自訂匯入 (佔 7 欄) -->
+      <div class="lg:col-span-7 bg-slate-900/85 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl">
+        <h2 class="text-base font-bold text-slate-50">2. 地圖與大型分類詞庫設定</h2>
+
+        <!-- 地圖大小選擇 -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3">
+            <label for="mapRadiusSelect" class="block text-xs font-semibold text-slate-300 mb-1.5">六邊形棋盤大小（開局三詞固定貼邊相鄰）</label>
+            <select id="mapRadiusSelect" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-sky-400">
+              <option value="2">緊湊型（半徑 2 圈｜19 格：12 陷阱 / 3 寶藏）</option>
+              <option value="3" selected>標準型（半徑 3 圈｜37 格：23 陷阱 / 6 寶藏）</option>
+              <option value="4">大型迷宮（半徑 4 圈｜61 格：38 陷阱 / 10 寶藏）</option>
+            </select>
+          </div>
+
+          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3 flex flex-col justify-between">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-300">目前啟用詞庫總量</span>
+              <span id="activePoolCountBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30">
+                800 詞
+              </span>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1">
+              抽取開局三詞時，將從勾選的分類與自訂詞庫中不重複隨機抽出。
+            </p>
+          </div>
+        </div>
+
+        <!-- 六大主題分類詞庫勾選（含月亮計劃 300 詞） -->
+        <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="text-xs font-bold text-sky-300">詞庫來源勾選（含月亮計劃 300 詞與五大分類各 100 詞）</span>
+            <div class="flex gap-1.5">
+              <button id="selectAllCatsBtn" type="button" class="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-1 rounded-md border border-slate-700 cursor-pointer">全選</button>
+              <button id="clearAllCatsBtn" type="button" class="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-1 rounded-md border border-slate-700 cursor-pointer">全不選</button>
+            </div>
+          </div>
+
+          <div id="categoryCheckboxes" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs"></div>
+        </div>
+
+        <!-- 批次自訂詞庫匯入 -->
+        <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-purple-300">自訂詞庫與批次匯入（自動保存於本機）</span>
+            <span id="customWordCountTag" class="text-[11px] text-slate-400">已存 0 個自訂詞</span>
+          </div>
+          <div class="flex flex-col sm:flex-row gap-2">
+            <textarea id="batchCustomInput" rows="2" placeholder="一次貼上多個詞語，可用逗號、頓號、空格或換行分隔（例如：宵夜, 死線, 遲到, 影印機, 驚喜）" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-400"></textarea>
+            <div class="flex sm:flex-col gap-1.5 justify-end">
+              <button id="importCustomWordsBtn" type="button" class="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold px-3 py-2 rounded-xl whitespace-nowrap transition cursor-pointer">
+                批次加入
+              </button>
+              <button id="clearCustomWordsBtn" type="button" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-[11px] px-3 py-1.5 rounded-xl whitespace-nowrap transition cursor-pointer">
+                清空自訂
+              </button>
+            </div>
+          </div>
+          <div id="customWordsPreview" class="flex flex-wrap gap-1.5 max-h-[68px] overflow-y-auto pt-1"></div>
+        </div>
+
+        <!-- 開局三個中文名詞預覽與修改 -->
+        <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-amber-300">開局貼邊三個中文名詞（可隨機抽或手動修改）</span>
+            <button id="lobbyRandomWordsBtn" type="button" class="bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition cursor-pointer">
+              隨機抽三詞
+            </button>
+          </div>
+          <div class="grid grid-cols-3 gap-2.5">
+            <input id="lobbyWord0" type="text" maxlength="6" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-xs sm:text-sm text-center font-bold text-white focus:outline-none focus:border-amber-400" />
+            <input id="lobbyWord1" type="text" maxlength="6" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-xs sm:text-sm text-center font-bold text-white focus:outline-none focus:border-amber-400" />
+            <input id="lobbyWord2" type="text" maxlength="6" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-xs sm:text-sm text-center font-bold text-white focus:outline-none focus:border-amber-400" />
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ==================== 第三頁：遊戲本體主頁 ==================== -->
+  <main id="gamePage" class="hidden flex-1 w-full max-w-[1520px] mx-auto p-3 sm:p-5 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5">
+
+    <!-- 左側放大六邊形地圖區 (佔 8 欄) -->
+    <section class="lg:col-span-8 bg-slate-900/85 border border-slate-800 rounded-2xl p-3.5 sm:p-5 flex flex-col gap-3 shadow-xl">
+      
+      <!-- 頂部狀態列 -->
+      <div class="bg-slate-950/85 border border-slate-800 rounded-xl p-2.5 sm:p-3 flex flex-wrap items-center justify-between gap-2.5">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs sm:text-sm font-bold bg-amber-500/15 text-amber-300 border border-amber-400/35">
+            剩餘步數：<strong id="stepsDisplay" class="text-base">10</strong>
+          </span>
+          <span id="phaseBadge" class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-sky-500/15 text-sky-300 border border-sky-400/30">
+            情報組回合
+          </span>
+          <span id="leaderDisplay" class="text-xs sm:text-sm font-semibold text-slate-200 ml-1">
+            本回合隊長：—
+          </span>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <span id="myIdentityBadge" class="text-xs font-bold px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-200">
+            你的身份：—
+          </span>
+          <button id="restartMatchBtn" type="button" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold px-3 py-1.5 rounded-xl transition cursor-pointer">
+            重新生成地圖
+          </button>
+        </div>
+      </div>
+
+      <!-- 行動狀態橫幅 -->
+      <div id="statusBanner" class="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-sky-500/10 border border-sky-400/30 text-sky-200">
+        情報組正在行動
+      </div>
+
+      <!-- 放大六邊形 SVG 畫布 -->
+      <div class="relative flex-1 min-h-[420px] sm:min-h-[580px] rounded-2xl border border-slate-800 bg-[radial-gradient(circle_at_center,#172554_0%,#090d16_82%)] flex items-center justify-center overflow-hidden p-2">
+        <svg id="hexMap" viewBox="-320 -300 640 600" class="w-full h-full max-h-[620px] select-none" aria-label="六邊形遊戲地圖"></svg>
+      </div>
+
+      <!-- 圖例說明 -->
+      <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 pt-0.5">
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <span class="inline-flex items-center gap-1.5"><i class="w-3 h-3 rounded bg-pink-600 inline-block"></i>出口</span>
+          <span class="inline-flex items-center gap-1.5"><i class="w-3 h-3 rounded bg-emerald-600 inline-block"></i>寶藏（+2 步）</span>
+          <span class="inline-flex items-center gap-1.5"><i class="w-3 h-3 rounded bg-red-600 inline-block"></i>陷阱（-2 步）</span>
+          <span class="inline-flex items-center gap-1.5"><i class="w-3 h-3 rounded bg-slate-600 inline-block"></i>普通格</span>
+          <span class="inline-flex items-center gap-1.5"><i class="w-3 h-3 rounded bg-slate-800 border border-slate-600 inline-block"></i>未解鎖空白格</span>
+        </div>
+        <span class="text-[11px] text-slate-500">探索任一空白格基本消耗 1 步</span>
+      </div>
+    </section>
+
+    <!-- 右側：隊伍名單、回合互動操作與行動紀錄 (佔 4 欄) -->
+    <aside class="lg:col-span-4 bg-slate-900/85 border border-slate-800 rounded-2xl p-3.5 sm:p-5 flex flex-col gap-4 shadow-xl">
+
+      <!-- 兩組在線成員狀態 -->
+      <div class="grid grid-cols-2 gap-2.5 text-xs">
+        <div class="bg-sky-950/25 border border-sky-500/25 rounded-xl p-2.5">
+          <div class="font-bold text-sky-300 mb-1">情報組</div>
+          <div id="gameIntelMembersList" class="space-y-1 text-slate-200"></div>
+        </div>
+        <div class="bg-purple-950/25 border border-purple-500/25 rounded-xl p-2.5">
+          <div class="font-bold text-purple-300 mb-1">冒險組</div>
+          <div id="gameAdvMembersList" class="space-y-1 text-slate-200"></div>
+        </div>
+      </div>
+
+      <hr class="border-slate-800" />
+
+      <!-- 情報組出題面板 -->
+      <div id="intelActionPanel" class="space-y-3">
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-bold text-sky-300">情報組出題區</h2>
+          <span id="intelLeaderTag" class="text-xs font-semibold bg-sky-500/15 text-sky-300 px-2.5 py-0.5 rounded-full border border-sky-400/30">
+            本回合隊長：—
+          </span>
+        </div>
+        <p class="text-xs text-slate-400 leading-relaxed">
+          情報組員皆可送出文字建議；隊長可直接點選「採用」或輸入最終決定文字後確認送出。
+        </p>
+
+        <div id="intelSuggestionsBox" class="bg-slate-950/75 border border-slate-800 rounded-xl p-2.5 space-y-1.5 min-h-[56px] max-h-[130px] overflow-y-auto text-xs"></div>
+
+        <!-- 隊員建議輸入（僅情報組員可用） -->
+        <div id="intelSuggestControls" class="flex gap-2">
+          <input id="intelSuggestionInput" type="text" placeholder="輸入建議文字給隊長..." maxlength="8" class="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-sky-400" />
+          <button id="addIntelSuggestionBtn" type="button" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition cursor-pointer">
+            送出建議
+          </button>
+        </div>
+
+        <!-- 隊長最終決定（僅情報隊長可用） -->
+        <div id="intelLeaderControls" class="flex gap-2 pt-1">
+          <input id="intelFinalInput" type="text" placeholder="隊長最終決定的文字..." maxlength="8" class="flex-1 min-w-0 bg-slate-950 border border-sky-500/50 rounded-xl px-3 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-sky-400" />
+          <button id="confirmIntelWordBtn" type="button" class="bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap shadow-sm transition cursor-pointer">
+            確認送出
+          </button>
+        </div>
+      </div>
+
+      <!-- 冒險組探索面板 -->
+      <div id="advActionPanel" class="hidden space-y-3">
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-bold text-purple-300">冒險組探索區</h2>
+          <span id="advLeaderTag" class="text-xs font-semibold bg-purple-500/15 text-purple-300 px-2.5 py-0.5 rounded-full border border-purple-400/30">
+            本回合隊長：—
+          </span>
+        </div>
+        <p class="text-xs text-slate-400 leading-relaxed">
+          點擊地圖上「至少有一條邊鄰近有文字板塊」的空白格。所有組員都能隨時更改選擇向隊長表達意見，最後由隊長按確認探索。
+        </p>
+
+        <div class="bg-purple-950/35 border border-purple-500/35 rounded-xl px-3.5 py-2.5 flex items-center justify-between text-xs">
+          <span class="text-purple-200">本回合情報文字：</span>
+          <strong id="pendingWordHint" class="text-base text-amber-300 tracking-wider">—</strong>
+        </div>
+
+        <!-- 冒險組即時選格同步列表 -->
+        <div id="advChoicesBox" class="bg-slate-950/75 border border-slate-800 rounded-xl p-2.5 space-y-1.5 text-xs"></div>
+
+        <button id="confirmAdvExploreBtn" type="button" class="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white py-2.5 rounded-xl text-xs sm:text-sm font-bold shadow-sm transition cursor-pointer">
+          隊長確認探索所選格子
+        </button>
+      </div>
+
+      <!-- 觀戰／等待提示 -->
+      <div id="waitingNoticeBox" class="hidden bg-slate-950/70 border border-slate-800 rounded-xl p-3 text-xs text-slate-300 leading-relaxed"></div>
+
+      <hr class="border-slate-800" />
+
+      <!-- 行動紀錄 -->
+      <div class="flex-1 flex flex-col min-h-[140px]">
+        <h2 class="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">行動紀錄</h2>
+        <div id="logBox" class="flex-1 bg-slate-950/85 border border-slate-800 rounded-xl p-2.5 max-h-[210px] overflow-y-auto text-xs space-y-1.5 text-slate-300"></div>
+      </div>
+
+    </aside>
+  </main>
+
+  <script>
+    // =========================================================================
+    // 1. 六大主題大型分類詞庫（月亮計劃 300 詞 + 五大分類各 100 詞 = 800 詞）
+    // =========================================================================
+    const WORD_CATEGORIES = {
+      projectMoon: {
+        label: "月亮計劃(月計) (300)",
+        words: [
+          "月亮計劃", "小金", "月計", "腦葉公司", "廢墟圖書館", "邊獄巴士", "都市", "翼", "巢", "後巷",
+          "首腦", "眼線", "爪牙", "調律者", "處決者", "收尾人", "一階收尾人", "色彩收尾人", "殷紅迷霧", "蔚藍殘響",
+          "漆黑噤默", "蒼藍殘響", "紫淚", "紅姐", "羅蘭", "安吉拉", "卡門", "艾因", "亞伯", "亞當",
+          "光之種", "白夜黑晝", "扭曲", "神備", "EGO", "異想體", "腦啡肽", "逆卡巴拉", "逆卡巴拉能量", "逆卡巴拉熔毀",
+          "控制部", "情報部", "安保部", "培訓部", "中央本部", "懲戒部", "福利部", "研發部", "記錄部", "構建部",
+          "瑪爾庫特", "耶索德", "霍德", "內察克", "蒂法瑞特", "蓋布拉", "切塞德", "比娜", "霍克瑪", "凱瑟",
+          "以諾", "麗莎", "卡莉", "丹尼爾", "米歇爾", "喬瓦尼", "加里翁", "本傑明", "A先生", "B先生",
+          "C女士", "兔子隊", "犀牛隊", "馴鹿隊", "W公司", "R公司", "T公司", "K公司", "L公司", "N公司",
+          "U公司", "J公司", "G公司", "H公司", "I公司", "M公司", "O公司", "P公司", "Q公司", "S公司",
+          "V公司", "X公司", "Y公司", "Z公司", "傳送列車", "時間稅", "再生安瓿", "奇點", "奇點科技", "永動機",
+          "懲戒鳥", "大鳥", "審判鳥", "終末鳥", "黃昏考驗", "黑森林", "白夜", "疫醫", "十二使徒", "一罪與百善",
+          "骷髏頭", "絕望騎士", "憎惡女王", "貪婪國王", "憤怒侍從", "虛無小丑", "魔法少女", "小红帽僱傭兵", "大壞狼", "沉默樂團",
+          "碧藍新星", "愛娜溫", "波魯特", "血浴缸", "冰雪女王", "小王子", "宇宙碎片", "銀河之子", "夢幻黑天鵝", "寄生樹",
+          "火鳥", "陰陽龍", "風雲僧", "紅舞鞋", "泰迪熊", "快樂泰迪", "蜘蛛蓓蕾", "老婦", "壁中女", "無名胎兒",
+          "殺人魔", "歌唱機", "全能幫手", "數據刪除", "審判天平", "次元折射變體", "大白夜", "雪橇魯道夫", "鬼屋", "黑天鵝之夢",
+          "魔彈射手", "第七顆子彈", "一槍一個", "穿刺樂園", "屍山", "微笑的屍山", "溶解之愛", "天啟鳥", "地鐵站", "巴士人",
+          "梅菲斯托費勒斯", "但丁", "鐘錶頭", "維吉里烏斯", "猩紅凝視", "卡戎", "李箱", "浮士德", "堂吉訶德", "小唐",
+          "良秀", "默爾索", "鴻璐", "寶玉", "希斯克利夫", "小夫", "以實瑪利", "瑪瑪", "羅佳", "辛克萊",
+          "小辛", "奧提斯", "奧姨", "格里高爾", "蟲叔", "金枝", "共鳴", "鏡像世界", "人格", "鏡牢",
+          "軌道線", "瓦普夜", "狂氣", "紡錘", "自我碎片", "理智值", "侵蝕", "拼點", "硬幣", "正面硬幣",
+          "反面硬幣", "破裂", "沉淪", "燒傷", "流血", "震顫", "充能", "呼吸法", "傘夫", "船長瑪",
+          "N辛", "握者", "兔浮", "W良", "W唐", "劍契組", "黑雲會", "拇指", "食指", "中指",
+          "小指", "環指", "五指", "都市之星", "都市夢魘", "都市傳說", "都市怪談", "都市惡疾", "總類層", "歷史層",
+          "科技層", "文學層", "藝術層", "自然科學層", "語言層", "社會科學層", "哲學層", "宗教層", "血魔", "拉曼恰樂園",
+          "桑丘", "杜爾西內婭", "巴里", "神父", "理髮師", "凱茜", "魔王", "狂獵", "呼嘯山莊", "亞哈",
+          "白鯨", "裴廓德號", "魁魁格", "星巴克", "克羅默", "德米安", "藍圍巾", "七協會", "六協會", "五協會",
+          "四協會", "三協會", "二協會", "一協會", "華協會", "死協會", "劍契", "豆豆幫", "鐵工會", "清道夫",
+          "夜錐", "蒼藍", "羅蘭面具", "感知阻礙面具", "杜蘭達爾", "輪迴", "書頁", "司書", "來賓", "邀請函",
+          "苦痛", "這就是這", "那便是那", "我們是月亮計劃", "小金的饋贈", "良心工作室", "韓遊之光", "月計宇宙", "扭曲偵探", "利維坦"
+        ]
+      },
+      acg: {
+        label: "網絡ACG詞彙 (100)",
+        words: [
+          "二次元", "番劇", "新番", "霸權番", "神作", "糞作", "爛尾", "魔改", "原著黨", "動畫黨",
+          "聲優", "CV", "主題曲", "片尾曲", "插入曲", "名場面", "作畫崩壞", "經費燃燒", "聖地巡禮", "同人誌",
+          "二創", "CP", "本命", "推活", "谷子", "吧唧", "立牌", "手辦", "景品", "黏土人",
+          "扭蛋", "盲盒", "抽卡", "十連抽", "保底", "大保底", "歪了", "歐皇", "非酋", "課金",
+          "無課", "微課", "重課", "肝帝", "鹹魚", "退坑", "入坑", "回坑", "版本答案", "人權卡",
+          "倉管", "強度黨", "XP黨", "劇情黨", "Skip黨", "攻略組", "開荒", "副本", "Boss戰", "紅溫",
+          "破防", "刀子", "發糖", "胃痛", "致鬱", "治癒", "燃起來了", "中二病", "傲嬌", "病嬌",
+          "三無", "天然呆", "腹黑", "反差萌", "呆毛", "雙馬尾", "黑長直", "獸耳", "女僕裝", "水手服",
+          "異世界", "轉生", "穿越", "系統流", "龍傲天", "後宮", "逆後宮", "輕小說", "漫畫", "國漫",
+          "日漫", "美漫", "虛擬主播", "VTuber", "中之人", "切片", "熟肉", "生肉", "彈幕", "空耳"
+        ]
+      },
+      meme: {
+        label: "網絡迷因與熱梗 (100)",
+        words: [
+          "迷因", "梗圖", "吃瓜", "吃瓜群眾", "前排圍觀", "社死", "尷尬癌", "破防了", "破大防", "EMO",
+          "躺平", "擺爛", "內捲", "摸魚", "帶薪拉屎", "打工人", "社畜", "早八人", "特種兵旅遊", "Citywalk",
+          "顯眼包", "純愛戰士", "戀愛腦", "下頭", "上頭", "普信", "雙標", "CPU", "PUA", "畫大餅",
+          "背鍋", "甩鍋", "吃餅", "真香", "真香定律", "大型真香現場", "笑死", "笑不活了", "絕絕子", "YYDS",
+          "永遠的神", "芭比Q了", "栓Q", "聽我說謝謝你", "我會謝", "離大譜", "離譜媽媽給離譜開門", "小丑竟是我自己", "小丑", "尊嘟假嘟",
+          "哈基米", "曼波", "科目三", "恐龍扛狼", "挖呀挖", "脆皮大學生", "清澈的愚蠢", "已讀亂回", "已讀不回", "不讀不回",
+          "偷感", "松弛感", "班味", "去班味", "精神狀態", "發瘋文學", "鼠鼠我呀", "哥布林", "嗎嘍", "卡皮巴拉",
+          "水豚", "情緒穩定", "電子榨菜", "電子木魚", "賽博功德", "賽博朋克", "AI繪圖", "提示詞", "幻覺", "智商稅",
+          "割韭菜", "韭菜", "接盤俠", "冤大頭", "大冤種", "大無語事件", "無語子", "家誰懂啊", "家人們", "泰褲辣",
+          "你沒事吧", "這合理嗎", "我不理解", "但大受震撼", "優雅", "太優雅了", "拿捏", "輕鬆拿捏", "硬控", "水靈靈"
+        ]
+      },
+      hk: {
+        label: "香港時事與在地 (100)",
+        words: [
+          "維多利亞港", "獅子山", "太平山頂", "天星小輪", "叮叮車", "港鐵", "八達通", "紅隧", "西隧", "東隧",
+          "三隧分流", "易通行", "屯馬線", "東鐵線", "過海", "茶餐廳", "凍檸茶", "走甜", "少冰", "絲襪奶茶",
+          "鴛鴦", "菠蘿油", "蛋撻", "魚蛋", "燒賣", "腸粉", "雞蛋仔", "格仔餅", "雲吞麵", "煲仔飯",
+          "大排檔", "打邊爐", "飲茶", "一盅兩件", "點心", "公屋", "居屋", "私樓", "劏房", "納米樓",
+          "白表", "綠表", "抽居屋", "上車", "首期", "按揭", "辣招", "撤辣", "北上消費", "山姆超市",
+          "港車北上", "高鐵", "西九龍", "故宮文化博物館", "M+", "啟德體育園", "夜繽紛", "盛事經濟", "熊貓經濟", "大熊貓",
+          "盈盈樂樂", "安安可可", "龍鳳胎", "海洋公園", "迪士尼", "長洲", "搶包山", "太平清醮", "大澳", "棚屋",
+          "南丫島", "西貢", "塔門", "麥理浩徑", "行山", "八號風球", "黑雨", "天文台", "李氏力場", "打風",
+          "落波", "消費券", "垃圾徵費", "走塑", "環保餐具", "紙飲管", "高才通", "優才", "外勞", "人口老化",
+          "銀髮族", "樂悠咭", "兩蚊搭車", "財赤", "財政預算案", "施政報告", "立法會", "區議會", "金管局", "聯繫匯率"
+        ]
+      },
+      mature: {
+        label: "成年向與夜生活 (100)",
+        words: [
+          "威士忌", "單一麥芽", "波本", "白蘭地", "干邑", "伏特加", "琴酒", "龍舌蘭", "朗姆酒", "清酒",
+          "梅酒", "燒酎", "紅酒", "白酒", "香檳", "氣泡酒", "精釀啤酒", "生啤", "調酒", "雞尾酒",
+          "莫希托", "長島冰茶", "馬丁尼", "古典雞尾酒", "內格羅尼", "血腥瑪麗", "瑪格麗特", "自由古巴", "金湯力", "高球",
+          "深水炸彈", "一口悶", "宿醉", "斷片", "微醺", "買醉", "酒吧", "清吧", "小酒館", "居酒屋",
+          "夜店", "舞池", "DJ台", "卡座", "開瓶", "調酒師", "酒保", "醒酒器", "冰球", "雪茄",
+          "古巴雪茄", "雪茄剪", "打火機", "煙斗", "水煙", "尼古丁", "焦油", "深夜食堂", "宵夜攤", "不眠夜",
+          "霓虹燈", "暗巷", "天台", "露台", "夜景", "晚風", "曖昧", "搭訕", "心動", "眼神交會",
+          "試探", "暗示", "秘密", "禁忌", "誘惑", "沉淪", "迷戀", "佔有慾", "安全感", "邊界感",
+          "前任", "白月光", "硃砂痣", "備胎", "海王", "渣男", "綠茶", "暈船", "下船", "分手",
+          "復合", "單身派對", "交友軟體", "左滑", "右滑", "配對成功", "線下見面", "AA制", "請客", "夜歸"
+        ]
+      },
+      daily: {
+        label: "日常綜合詞彙 (100)",
+        words: [
+          "律師", "法官", "檢察官", "警察", "消防員", "醫生", "護士", "藥劑師", "工程師", "程式設計師",
+          "建築師", "設計師", "會計師", "教師", "教授", "記者", "攝影師", "廚師", "咖啡師", "飛行員",
+          "圖書館", "博物館", "美術館", "電影院", "醫院", "藥局", "銀行", "郵局", "超市", "便利商店",
+          "百貨公司", "咖啡廳", "健身房", "游泳池", "公園", "機場", "火車站", "港口", "法院", "派出所",
+          "憲法", "刑法", "民法", "合約", "訴訟", "證據", "證人", "不在場證明", "保釋", "緩刑",
+          "判決", "上訴", "版權", "專利", "商標", "隱私權", "個資", "條款", "違約金", "公證",
+          "愛因斯坦", "牛頓", "達文西", "莎士比亞", "貝多芬", "莫札特", "梵谷", "畢卡索", "居禮夫人", "霍金",
+          "蘇格拉底", "柏拉圖", "亞里斯多德", "孔子", "李白", "蘇東坡", "魯迅", "金庸", "宮崎駿", "賈伯斯",
+          "雨傘", "鬧鐘", "鑰匙", "保溫瓶", "行李箱", "護照", "錢包", "耳機", "充電器", "行動電源",
+          "筆記型電腦", "鍵盤", "滑鼠", "眼鏡", "手錶", "背包", "日曆", "便利貼", "剪刀", "膠帶"
+        ]
+      }
+    };
+
+    const AXIAL_DIRS = [
+      { q: 1, r: 0 }, { q: 1, r: -1 }, { q: 0, r: -1 },
+      { q: -1, r: 0 }, { q: -1, r: 1 }, { q: 0, r: 1 }
+    ];
+
+    const STORAGE_PREFS_KEY = "hex_maze_prefs_v2";
+    const STORAGE_ROOM_PREFIX = "hex_maze_room_v2_";
+    const PEER_PREFIX = "hexmaze-v2-room-";
+
+    // =========================================================================
+    // 2. 本地狀態與房間同步狀態
+    // =========================================================================
+    const localState = {
+      playerName: "",
+      roomCode: "",
+      isHost: false,
+      enabledCats: new Set(Object.keys(WORD_CATEGORIES).concat(["custom"])),
+      customWords: [],
+      channel: null,
+      peer: null,
+      hostConn: null,
+      clientConns: []
+    };
+
+    let roomState = null;
+    let toastTimer = null;
+
+    // =========================================================================
+    // 3. 基礎工具函式
+    // =========================================================================
+    function showToast(msg) {
+      const banner = document.getElementById("toastBanner");
+      if (!banner) return;
+      banner.textContent = msg;
+      banner.classList.remove("hidden");
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        banner.classList.add("hidden");
+      }, 3200);
+    }
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return "";
+      return String(str).replace(/[&<>"']/g, c => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[c]));
+    }
+
+    function generateRoomCode() {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      let res = "";
+      for (let i = 0; i < 6; i++) {
+        res += chars[Math.floor(Math.random() * chars.length)];
+      }
+      return res;
+    }
+
+    function getMyPlayerName() {
+      const input = document.getElementById("playerNameInput");
+      const name = (input ? input.value : "").trim();
+      if (!name) {
+        showToast("請先輸入你的玩家 ID！");
+        if (input) input.focus();
+        return "";
+      }
+      localState.playerName = name;
+      saveCustomPreferences();
+      return name;
+    }
+
+    function loadSavedPreferences() {
+      try {
+        const raw = localStorage.getItem(STORAGE_PREFS_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed.playerName) {
+          localState.playerName = parsed.playerName;
+          const inp = document.getElementById("playerNameInput");
+          if (inp) inp.value = parsed.playerName;
+        }
+        if (Array.isArray(parsed.customWords)) {
+          localState.customWords = parsed.customWords;
+        }
+        if (Array.isArray(parsed.enabledCats)) {
+          localState.enabledCats = new Set(parsed.enabledCats);
+        }
+      } catch (e) {
+        console.warn("讀取本機偏好設定失敗", e);
+      }
+    }
+
+    function saveCustomPreferences() {
+      try {
+        localStorage.setItem(STORAGE_PREFS_KEY, JSON.stringify({
+          playerName: localState.playerName,
+          customWords: localState.customWords,
+          enabledCats: [...localState.enabledCats]
+        }));
+      } catch (e) {
+        console.warn("儲存本機偏好設定失敗", e);
+      }
+    }
+
+    // =========================================================================
+    // 4. 詞庫計算、抽詞與分類 UI
+    // =========================================================================
+    function getActiveWordPool() {
+      const poolSet = new Set();
+      Object.entries(WORD_CATEGORIES).forEach(([key, cat]) => {
+        if (localState.enabledCats.has(key)) {
+          cat.words.forEach(w => poolSet.add(w));
+        }
+      });
+      if (localState.enabledCats.has("custom")) {
+        localState.customWords.forEach(w => poolSet.add(w));
+      }
+      if (poolSet.size < 3) {
+        // 避免全不選時無詞可抽，退回預設詞庫
+        WORD_CATEGORIES.daily.words.slice(0, 20).forEach(w => poolSet.add(w));
+      }
+      return [...poolSet];
+    }
+
+    function pickRandomWordsFromActivePool(count) {
+      const pool = getActiveWordPool();
+      const chosen = [];
+      while (chosen.length < count && pool.length > 0) {
+        const idx = Math.floor(Math.random() * pool.length);
+        chosen.push(pool.splice(idx, 1)[0]);
+      }
+      return chosen;
+    }
+
+    function renderCategoryControls() {
+      const container = document.getElementById("categoryCheckboxes");
+      if (!container) return;
+
+      const entries = Object.entries(WORD_CATEGORIES).map(([key, cat]) => ({
+        key,
+        label: cat.label
+      }));
+      entries.push({
+        key: "custom",
+        label: `自訂匯入 (${localState.customWords.length})`
+      });
+
+      container.innerHTML = entries.map(item => {
+        const checked = localState.enabledCats.has(item.key) ? "checked" : "";
+        return `
+          <label class="flex items-center gap-2 bg-slate-900/90 border border-slate-800 hover:border-slate-700 px-2.5 py-2 rounded-lg cursor-pointer select-none">
+            <input type="checkbox" data-cat-key="${item.key}" ${checked} class="rounded accent-sky-500 cursor-pointer" />
+            <span class="truncate text-slate-200">${escapeHtml(item.label)}</span>
+          </label>
+        `;
+      }).join("");
+
+      container.querySelectorAll("input[data-cat-key]").forEach(cb => {
+        cb.addEventListener("change", () => {
+          const k = cb.dataset.catKey;
+          if (cb.checked) localState.enabledCats.add(k);
+          else localState.enabledCats.delete(k);
+          saveCustomPreferences();
+          updatePoolBadges();
+        });
+      });
+
+      updatePoolBadges();
+    }
+
+    function updatePoolBadges() {
+      const total = getActiveWordPool().length;
+      const badge = document.getElementById("activePoolCountBadge");
+      if (badge) badge.textContent = `${total} 詞`;
+
+      const customTag = document.getElementById("customWordCountTag");
+      if (customTag) customTag.textContent = `已存 ${localState.customWords.length} 個自訂詞`;
+
+      const preview = document.getElementById("customWordsPreview");
+      if (preview) {
+        preview.innerHTML = localState.customWords.map(w => `
+          <span class="px-2 py-0.5 rounded-md bg-purple-500/20 border border-purple-400/30 text-purple-200 text-[11px]">
+            ${escapeHtml(w)}
+          </span>
+        `).join("");
+      }
+    }
+
+    // =========================================================================
+    // 5. 同瀏覽器分頁 + 跨裝置 PeerJS 無介面即時同步層
+    // =========================================================================
+    function loadRoomFromStore(code) {
+      try {
+        const raw = localStorage.getItem(STORAGE_ROOM_PREFIX + code);
+        return raw ? JSON.parse(raw) : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function saveRoomToStore(stateObj, fromRemote = false) {
+      if (!stateObj || !stateObj.roomCode) return;
+      roomState = stateObj;
+
+      try {
+        localStorage.setItem(STORAGE_ROOM_PREFIX + stateObj.roomCode, JSON.stringify(stateObj));
+      } catch (e) {
+        // 忽略無痕模式儲存限制
+      }
+
+      if (localState.channel && !fromRemote) {
+        try {
+          localState.channel.postMessage({ type: "ROOM_SYNC", state: stateObj });
+        } catch (e) {}
+      }
+
+      // 跨裝置同步：房主廣播給所有連線客戶端；客戶端回傳最新狀態給房主
+      if (!fromRemote) {
+        if (localState.isHost) {
+          broadcastToRemoteClients(stateObj);
+        } else if (localState.hostConn && localState.hostConn.open) {
+          try {
+            localState.hostConn.send({ type: "CLIENT_STATE_UPDATE", state: stateObj });
+          } catch (e) {}
+        }
+      }
+    }
+
+    function startLocalChannelListener(code) {
+      if (localState.channel) {
+        try { localState.channel.close(); } catch (e) {}
+      }
+      if ("BroadcastChannel" in window) {
+        localState.channel = new BroadcastChannel("hex_maze_bc_" + code);
+        localState.channel.onmessage = (ev) => {
+          if (ev.data && ev.data.type === "ROOM_SYNC" && ev.data.state) {
+            roomState = ev.data.state;
+            renderAll();
+          }
+        };
+      }
+    }
+
+    function broadcastToRemoteClients(stateObj) {
+      localState.clientConns = localState.clientConns.filter(c => c && c.open);
+      localState.clientConns.forEach(conn => {
+        try {
+          conn.send({ type: "HOST_STATE_SYNC", state: stateObj });
+        } catch (e) {}
+      });
+    }
+
+    function initHostPeer(code) {
+      if (typeof Peer === "undefined") return;
+      try {
+        const peer = new Peer(PEER_PREFIX + code, { debug: 0 });
+        localState.peer = peer;
+
+        peer.on("open", () => {
+          const dot = document.getElementById("connStatusDot");
+          if (dot) dot.className = "inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse";
+        });
+
+        peer.on("connection", (conn) => {
+          localState.clientConns.push(conn);
+
+          conn.on("data", (msg) => {
+            if (!msg || !roomState) return;
+            if (msg.type === "JOIN_REQUEST" && msg.playerName) {
+              const pName = String(msg.playerName).trim();
+              if (!roomState.players) roomState.players = {};
+              if (roomState.players[pName]) {
+                roomState.players[pName].online = true;
+              } else {
+                const allP = Object.values(roomState.players);
+                const intelLen = allP.filter(p => p.team === "intel").length;
+                const advLen = allP.filter(p => p.team === "adv").length;
+                roomState.players[pName] = {
+                  name: pName,
+                  team: intelLen <= advLen ? "intel" : "adv",
+                  online: true
+                };
+              }
+              saveRoomToStore(roomState);
+              renderAll();
+              showToast(`${pName} 加入了房間！`);
+            } else if (msg.type === "CLIENT_STATE_UPDATE" && msg.state) {
+              saveRoomToStore(msg.state);
+              renderAll();
+            }
+          });
+
+          conn.on("open", () => {
+            if (roomState) {
+              conn.send({ type: "HOST_STATE_SYNC", state: roomState });
+            }
+          });
+        });
+
+        peer.on("error", () => {
+          // 若遠端節點暫時不可用，本機同瀏覽器仍可正常運作不卡死
+        });
+      } catch (e) {
+        console.warn("PeerJS 初始化略過", e);
+      }
+    }
+
+    function connectToRemoteHost(code, playerName) {
+      return new Promise((resolve, reject) => {
+        if (typeof Peer === "undefined") {
+          reject(new Error("瀏覽器未載入連線模組，請檢查網路後重試"));
+          return;
+        }
+
+        let settled = false;
+        const peer = new Peer({ debug: 0 });
+        localState.peer = peer;
+
+        const timer = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            reject(new Error("連線逾時，請確認房號正確且房主仍在大廳或遊戲中"));
+          }
+        }, 9000);
+
+        peer.on("open", () => {
+          const conn = peer.connect(PEER_PREFIX + code, { reliable: true });
+          localState.hostConn = conn;
+
+          conn.on("open", () => {
+            conn.send({ type: "JOIN_REQUEST", playerName });
+          });
+
+          conn.on("data", (msg) => {
+            if (msg && msg.type === "HOST_STATE_SYNC" && msg.state) {
+              saveRoomToStore(msg.state, true);
+              renderAll();
+              if (!settled) {
+                settled = true;
+                clearTimeout(timer);
+                resolve(msg.state);
+              }
+            }
+          });
+
+          conn.on("error", () => {
+            if (!settled) {
+              settled = true;
+              clearTimeout(timer);
+              reject(new Error("無法連接至房主，請確認房號是否正確"));
+            }
+          });
+        });
+
+        peer.on("error", () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            reject(new Error("找不到該房間（請確認 6 碼房號或房主在線狀態）"));
+          }
+        });
+      });
+    }
+
+    function cleanupNetwork() {
+      if (localState.channel) {
+        try { localState.channel.close(); } catch (e) {}
+        localState.channel = null;
+      }
+      if (localState.hostConn) {
+        try { localState.hostConn.close(); } catch (e) {}
+        localState.hostConn = null;
+      }
+      localState.clientConns.forEach(c => {
+        try { c.close(); } catch (e) {}
+      });
+      localState.clientConns = [];
+      if (localState.peer) {
+        try { localState.peer.destroy(); } catch (e) {}
+        localState.peer = null;
+      }
+    }
+
+    // =========================================================================
+    // 6. 六邊形地圖生成（取消入口格，固定三個貼邊且相鄰的開局字詞格）
+    // =========================================================================
+    function keyOf(q, r) {
+      return `${q},${r}`;
+    }
+
+    function hexDistance(a, b) {
+      return (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+    }
+
+    function getNeighbors(q, r) {
+      return AXIAL_DIRS.map(d => ({ q: q + d.q, r: r + d.r }));
+    }
+
+    function findShortestPathFromSet(startKeys, goalKey, tileMap) {
+      const queue = startKeys.map(k => [k]);
+      const visited = new Set(startKeys);
+      while (queue.length > 0) {
+        const path = queue.shift();
+        const curr = path[path.length - 1];
+        if (curr === goalKey) return path;
+        const t = tileMap.get(curr);
+        if (!t) continue;
+        for (const n of getNeighbors(t.q, t.r)) {
+          const nk = keyOf(n.q, n.r);
+          if (tileMap.has(nk) && !visited.has(nk)) {
+            visited.add(nk);
+            queue.push([...path, nk]);
+          }
+        }
+      }
+      return null;
+    }
+
+    function generateHexMapForRoom(room) {
+      const radius = Number(room.radius) || 3;
+      const coords = [];
+
+      for (let q = -radius; q <= radius; q++) {
+        const r1 = Math.max(-radius, -q - radius);
+        const r2 = Math.min(radius, -q + radius);
+        for (let r = r1; r <= r2; r++) {
+          coords.push({ q, r });
+        }
+      }
+
+      // 固定三個開局字詞的位置：皆位於最外圍貼邊 (q = -radius 邊界) 且彼此兩兩相鄰
+      const fixedStarterCoords = [
+        { q: -radius, r: 0 },
+        { q: -radius, r: 1 },
+        { q: -radius, r: 2 }
+      ];
+      const starterKeys = fixedStarterCoords.map(c => keyOf(c.q, c.r));
+
+      // 出口生成在距離這三個開局格最遠的另一端邊界上
+      let maxMinDist = 0;
+      coords.forEach(c => {
+        const k = keyOf(c.q, c.r);
+        if (starterKeys.includes(k)) return;
+        const minDistToStarters = Math.min(...fixedStarterCoords.map(sc => hexDistance(c, sc)));
+        if (minDistToStarters > maxMinDist) maxMinDist = minDistToStarters;
+      });
+
+      const goalCandidates = coords.filter(c => {
+        const k = keyOf(c.q, c.r);
+        if (starterKeys.includes(k)) return false;
+        const minDistToStarters = Math.min(...fixedStarterCoords.map(sc => hexDistance(c, sc)));
+        return minDistToStarters >= maxMinDist;
+      });
+      const goalCoord = goalCandidates[Math.floor(Math.random() * goalCandidates.length)];
+      const goalKey = keyOf(goalCoord.q, goalCoord.r);
+
+      const words = Array.isArray(room.starterWords) && room.starterWords.length === 3
+        ? room.starterWords
+        : pickRandomWordsFromActivePool(3);
+
+      // 依地圖規格決定陷阱與寶藏精確數量（小地圖 19 格：12 陷阱、3 寶藏；中/大地圖等比例）
+      const totalTiles = coords.length;
+      const trapCount = Math.round((totalTiles * 12) / 19);
+      const treasureCount = Math.round((totalTiles * 3) / 19);
+
+      // 扣除 3 個開局字詞格與 1 個出口格後，洗牌分配陷阱、寶藏與普通格
+      const fillableKeys = coords
+        .map(c => keyOf(c.q, c.r))
+        .filter(k => !starterKeys.includes(k) && k !== goalKey)
+        .sort(() => Math.random() - 0.5);
+
+      const typeAssignment = new Map();
+      fillableKeys.forEach((k, idx) => {
+        if (idx < trapCount) {
+          typeAssignment.set(k, { type: "trap", delta: -2 });
+        } else if (idx < trapCount + treasureCount) {
+          typeAssignment.set(k, { type: "treasure", delta: 2 });
+        } else {
+          typeAssignment.set(k, { type: "normal", delta: -1 });
+        }
+      });
+
+      const tiles = coords.map(c => {
+        const k = keyOf(c.q, c.r);
+        let type = "normal";
+        let delta = -1;
+
+        if (k === goalKey) {
+          type = "goal";
+          delta = -1;
+        } else if (starterKeys.includes(k)) {
+          type = "normal";
+          delta = 0;
+        } else if (typeAssignment.has(k)) {
+          const assigned = typeAssignment.get(k);
+          type = assigned.type;
+          delta = assigned.delta;
+        }
+
+        return {
+          key: k,
+          q: c.q,
+          r: c.r,
+          type,
+          delta,
+          word: starterKeys.includes(k) ? words[starterKeys.indexOf(k)] : null,
+          revealed: starterKeys.includes(k)
+        };
+      });
+
+      const tileMap = new Map(tiles.map(t => [t.key, t]));
+      const shortest = findShortestPathFromSet(starterKeys, goalKey, tileMap);
+      const minSteps = shortest ? shortest.length - 1 : radius * 2;
+
+      room.tiles = tiles;
+      room.startKey = "";
+      room.goalKey = goalKey;
+      room.starterKeys = starterKeys;
+      room.steps = Math.max(8, minSteps + 4 + (radius - 2) * 2);
+      room.phase = "intel";
+      room.outcome = null;
+      room.intelLeaderIdx = 0;
+      room.advLeaderIdx = 0;
+      room.intelSuggestions = [];
+      room.pendingWord = "";
+      room.advChoices = {};
+      room.screen = "game";
+      appendRoomLog(room, `新迷宮已生成（共 ${tiles.length} 格｜${trapCount} 陷阱、${treasureCount} 寶藏），開局貼邊三詞：「${words.join("、")}」，初始步數 ${room.steps} 步。`);
+    }
+
+    function appendRoomLog(room, text) {
+      if (!room.logs) room.logs = [];
+      const time = new Date().toLocaleTimeString("zh-TW", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      room.logs.unshift(`[${time}] ${text}`);
+      if (room.logs.length > 60) room.logs.length = 60;
+    }
+
+    // =========================================================================
+    // 7. 房間大廳與遊戲操作邏輯
+    // =========================================================================
+    function switchMyTeam(targetTeam) {
+      if (!roomState || !localState.playerName) return;
+      if (!roomState.players) roomState.players = {};
+      roomState.players[localState.playerName] = {
+        name: localState.playerName,
+        team: targetTeam,
+        online: true
+      };
+      saveRoomToStore(roomState);
+      renderAll();
+    }
+
+    function getTeamMembers(teamName) {
+      if (!roomState || !roomState.players) return [];
+      return Object.values(roomState.players)
+        .filter(p => p.team === teamName)
+        .map(p => p.name);
+    }
+
+    function getSelectableBlankKeys() {
+      if (!roomState || !roomState.tiles) return new Set();
+      const tileMap = new Map(roomState.tiles.map(t => [t.key, t]));
+      const wordTileKeys = roomState.tiles.filter(t => Boolean(t.word)).map(t => t.key);
+      const valid = new Set();
+      for (const wk of wordTileKeys) {
+        const wt = tileMap.get(wk);
+        if (!wt) continue;
+        for (const n of getNeighbors(wt.q, wt.r)) {
+          const nk = keyOf(n.q, n.r);
+          const nt = tileMap.get(nk);
+          if (nt && !nt.word && !nt.revealed) {
+            valid.add(nk);
+          }
+        }
+      }
+      return valid;
+    }
+
+    function handleHexClick(tile) {
+      if (!roomState || roomState.screen !== "game" || roomState.phase !== "adv") return;
+      const me = roomState.players ? roomState.players[localState.playerName] : null;
+      if (!me || me.team !== "adv") {
+        showToast("目前是冒險組回合，只有冒險組可以選擇探索格子！");
+        return;
+      }
+
+      const selectable = getSelectableBlankKeys();
+      if (!selectable.has(tile.key)) {
+        showToast("必須選擇至少有一條邊鄰近已放文字板塊的空白格！");
+        return;
+      }
+
+      if (!roomState.advChoices) roomState.advChoices = {};
+      roomState.advChoices[localState.playerName] = tile.key;
+
+      const advMembers = getTeamMembers("adv");
+      const leader = advMembers.length > 0 ? advMembers[roomState.advLeaderIdx % advMembers.length] : "";
+      if (localState.playerName === leader) {
+        appendRoomLog(roomState, `冒險隊長 ${leader} 將目標格選為 (${tile.q},${tile.r})。`);
+      } else {
+        appendRoomLog(roomState, `${localState.playerName} 提議探索 (${tile.q},${tile.r})。`);
+      }
+
+      saveRoomToStore(roomState);
+      renderAll();
+    }
+
+    // =========================================================================
+    // 8. 三頁畫面渲染（入口頁 / 遊戲大廳 / 遊戲本體）
+    // =========================================================================
+    function renderAll() {
+      const entryPage = document.getElementById("entryPage");
+      const lobbyPage = document.getElementById("lobbyPage");
+      const gamePage = document.getElementById("gamePage");
+      const roomBadge = document.getElementById("roomHeaderBadge");
+      const backBtn = document.getElementById("backToLobbyBtn");
+      const leaveBtn = document.getElementById("leaveRoomBtn");
+
+      if (!roomState || !localState.roomCode) {
+        entryPage.classList.remove("hidden");
+        lobbyPage.classList.add("hidden");
+        gamePage.classList.add("hidden");
+        roomBadge.classList.add("hidden");
+        roomBadge.classList.remove("flex");
+        backBtn.classList.add("hidden");
+        leaveBtn.classList.add("hidden");
+        return;
+      }
+
+      entryPage.classList.add("hidden");
+      roomBadge.classList.remove("hidden");
+      roomBadge.classList.add("flex");
+      document.getElementById("headerRoomCode").textContent = roomState.roomCode;
+      leaveBtn.classList.remove("hidden");
+
+      if (roomState.screen === "lobby") {
+        lobbyPage.classList.remove("hidden");
+        gamePage.classList.add("hidden");
+        backBtn.classList.add("hidden");
+        renderLobby();
+      } else {
+        lobbyPage.classList.add("hidden");
+        gamePage.classList.remove("hidden");
+        backBtn.classList.remove("hidden");
+        renderGame();
+      }
+    }
+
+    function renderLobby() {
+      document.getElementById("lobbyMyNameTag").textContent = `玩家ID：${localState.playerName}`;
+      const allPlayers = Object.values(roomState.players || {});
+      document.getElementById("lobbyRoomStatus").textContent = `房間 ${roomState.roomCode}｜目前線上共 ${allPlayers.length} 人`;
+
+      const intelList = document.getElementById("intelTeamList");
+      const advList = document.getElementById("advTeamList");
+      const intelPlayers = allPlayers.filter(p => p.team === "intel");
+      const advPlayers = allPlayers.filter(p => p.team === "adv");
+
+      intelList.innerHTML = intelPlayers.length === 0
+        ? `<span class="text-xs text-slate-500">尚無成員</span>`
+        : intelPlayers.map(p => `
+            <span class="inline-flex items-center gap-1.5 bg-sky-500/20 border border-sky-400/40 text-sky-200 text-xs font-semibold px-2.5 py-1 rounded-lg">
+              ${escapeHtml(p.name)}${p.name === localState.playerName ? "（你）" : ""}
+            </span>
+          `).join("");
+
+      advList.innerHTML = advPlayers.length === 0
+        ? `<span class="text-xs text-slate-500">尚無成員</span>`
+        : advPlayers.map(p => `
+            <span class="inline-flex items-center gap-1.5 bg-purple-500/20 border border-purple-400/40 text-purple-200 text-xs font-semibold px-2.5 py-1 rounded-lg">
+              ${escapeHtml(p.name)}${p.name === localState.playerName ? "（你）" : ""}
+            </span>
+          `).join("");
+
+      const radiusSelect = document.getElementById("mapRadiusSelect");
+      if (radiusSelect && String(roomState.radius)) {
+        radiusSelect.value = String(roomState.radius);
+      }
+
+      if (Array.isArray(roomState.starterWords)) {
+        for (let i = 0; i < 3; i++) {
+          const inp = document.getElementById(`lobbyWord${i}`);
+          if (inp && document.activeElement !== inp) {
+            inp.value = roomState.starterWords[i] || "";
+          }
+        }
+      }
+
+      const startBtn = document.getElementById("startGameBtn");
+      startBtn.disabled = intelPlayers.length === 0 || advPlayers.length === 0;
+    }
+
+    function renderGame() {
+      const me = roomState.players ? roomState.players[localState.playerName] : null;
+      const myTeam = me ? me.team : "spectator";
+      const isIntel = myTeam === "intel";
+
+      const identityBadge = document.getElementById("myIdentityBadge");
+      if (myTeam === "intel") {
+        identityBadge.textContent = `你的身份：${localState.playerName}（情報組）`;
+        identityBadge.className = "text-xs font-bold px-3 py-1.5 rounded-xl bg-sky-950/80 border border-sky-500/40 text-sky-300";
+      } else if (myTeam === "adv") {
+        identityBadge.textContent = `你的身份：${localState.playerName}（冒險組）`;
+        identityBadge.className = "text-xs font-bold px-3 py-1.5 rounded-xl bg-purple-950/80 border border-purple-500/40 text-purple-300";
+      } else {
+        identityBadge.textContent = `你的身份：${localState.playerName}（觀戰）`;
+        identityBadge.className = "text-xs font-bold px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-300";
+      }
+
+      const intelMembers = getTeamMembers("intel");
+      const advMembers = getTeamMembers("adv");
+      const currentIntelLeader = intelMembers.length > 0 ? intelMembers[roomState.intelLeaderIdx % intelMembers.length] : "—";
+      const currentAdvLeader = advMembers.length > 0 ? advMembers[roomState.advLeaderIdx % advMembers.length] : "—";
+
+      document.getElementById("gameIntelMembersList").innerHTML = intelMembers.map(m => `
+        <div class="truncate">${escapeHtml(m)}${m === currentIntelLeader && roomState.phase === "intel" ? " <span class='text-amber-300 font-bold'>[隊長]</span>" : ""}</div>
+      `).join("") || `<span class="text-slate-500">無</span>`;
+
+      document.getElementById("gameAdvMembersList").innerHTML = advMembers.map(m => `
+        <div class="truncate">${escapeHtml(m)}${m === currentAdvLeader && roomState.phase === "adv" ? " <span class='text-amber-300 font-bold'>[隊長]</span>" : ""}</div>
+      `).join("") || `<span class="text-slate-500">無</span>`;
+
+      document.getElementById("stepsDisplay").textContent = roomState.steps;
+
+      const phaseBadge = document.getElementById("phaseBadge");
+      const leaderDisplay = document.getElementById("leaderDisplay");
+      const banner = document.getElementById("statusBanner");
+      const intelPanel = document.getElementById("intelActionPanel");
+      const advPanel = document.getElementById("advActionPanel");
+      const waitBox = document.getElementById("waitingNoticeBox");
+
+      if (roomState.phase === "ended") {
+        phaseBadge.textContent = "遊戲結束";
+        phaseBadge.className = "inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-slate-700 text-slate-200";
+        leaderDisplay.textContent = "本局已結算";
+        intelPanel.classList.add("hidden");
+        advPanel.classList.add("hidden");
+        waitBox.classList.remove("hidden");
+
+        if (roomState.outcome === "win") {
+          banner.className = "px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-emerald-500/20 border border-emerald-400/50 text-emerald-200";
+          banner.textContent = `通關成功！冒險組在剩餘 ${roomState.steps} 步時順利抵達出口！`;
+          waitBox.textContent = "任務完成！可點擊「重新生成地圖」再戰一局，或返回大廳調整設定。";
+        } else {
+          banner.className = "px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-red-500/20 border border-red-400/50 text-red-200";
+          banner.textContent = "步數耗盡！未能抵達出口，探險失敗。";
+          waitBox.textContent = "步數已歸零！可點擊「重新生成地圖」重新挑戰。";
+        }
+      } else if (roomState.phase === "intel") {
+        phaseBadge.textContent = "情報組回合";
+        phaseBadge.className = "inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-sky-500/15 text-sky-300 border border-sky-400/30";
+        leaderDisplay.textContent = `情報隊長：${currentIntelLeader}`;
+        banner.className = "px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-sky-500/10 border border-sky-400/30 text-sky-200";
+        banner.textContent = "情報組正在行動";
+
+        if (isIntel) {
+          intelPanel.classList.remove("hidden");
+          advPanel.classList.add("hidden");
+          waitBox.classList.add("hidden");
+
+          document.getElementById("intelLeaderTag").textContent = `本回合隊長：${currentIntelLeader}`;
+          const sugBox = document.getElementById("intelSuggestionsBox");
+          const suggestions = roomState.intelSuggestions || [];
+          const amILeader = localState.playerName === currentIntelLeader;
+
+          if (suggestions.length === 0) {
+            sugBox.innerHTML = `<span class="text-slate-500">尚無隊員建議文字；隊長可直接輸入並確認送出。</span>`;
+          } else {
+            sugBox.innerHTML = suggestions.map((s, idx) => `
+              <div class="flex items-center justify-between gap-2 py-1 border-b border-slate-800/80 last:border-none">
+                <span><strong class="text-sky-300">${escapeHtml(s.member)}</strong>：${escapeHtml(s.text)}</span>
+                ${amILeader ? `<button type="button" data-adopt-idx="${idx}" class="bg-sky-700 hover:bg-sky-600 text-white text-[11px] px-2 py-0.5 rounded cursor-pointer">採用</button>` : ""}
+              </div>
+            `).join("");
+
+            if (amILeader) {
+              sugBox.querySelectorAll("button[data-adopt-idx]").forEach(btn => {
+                btn.addEventListener("click", () => {
+                  const item = suggestions[Number(btn.dataset.adoptIdx)];
+                  if (item) document.getElementById("intelFinalInput").value = item.text;
+                });
+              });
+            }
+          }
+
+          const leaderControls = document.getElementById("intelLeaderControls");
+          if (amILeader) {
+            leaderControls.classList.remove("hidden");
+          } else {
+            leaderControls.classList.add("hidden");
+          }
+        } else {
+          intelPanel.classList.add("hidden");
+          advPanel.classList.add("hidden");
+          waitBox.classList.remove("hidden");
+          waitBox.textContent = `目前正在等待情報組（隊長：${currentIntelLeader}）給出本回合提示文字...`;
+        }
+      } else if (roomState.phase === "adv") {
+        phaseBadge.textContent = "冒險組回合";
+        phaseBadge.className = "inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-purple-500/15 text-purple-300 border border-purple-400/30";
+        leaderDisplay.textContent = `冒險隊長：${currentAdvLeader}`;
+        banner.className = "px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-purple-500/15 border border-purple-400/35 text-purple-200";
+        banner.textContent = `冒險組正在行動｜本回合文字：「${roomState.pendingWord}」`;
+
+        if (myTeam === "adv") {
+          intelPanel.classList.add("hidden");
+          advPanel.classList.remove("hidden");
+          waitBox.classList.add("hidden");
+
+          document.getElementById("advLeaderTag").textContent = `本回合隊長：${currentAdvLeader}`;
+          document.getElementById("pendingWordHint").textContent = roomState.pendingWord || "—";
+
+          const tileMap = new Map((roomState.tiles || []).map(t => [t.key, t]));
+          const choices = roomState.advChoices || {};
+          document.getElementById("advChoicesBox").innerHTML = advMembers.map(m => {
+            const chosenKey = choices[m];
+            const chosenTile = chosenKey ? tileMap.get(chosenKey) : null;
+            const label = chosenTile ? `(${chosenTile.q}, ${chosenTile.r})` : "尚未點選格子";
+            const leaderMark = m === currentAdvLeader ? " <span class='text-amber-300 font-bold'>[隊長]</span>" : "";
+            return `
+              <div class="flex items-center justify-between py-1 border-b border-slate-800/80 last:border-none">
+                <span><strong>${escapeHtml(m)}</strong>${leaderMark}</span>
+                <span class="text-amber-200 font-semibold">${label}</span>
+              </div>
+            `;
+          }).join("");
+
+          const confirmBtn = document.getElementById("confirmAdvExploreBtn");
+          const amILeader = localState.playerName === currentAdvLeader;
+          if (amILeader) {
+            confirmBtn.classList.remove("hidden");
+            confirmBtn.disabled = !choices[currentAdvLeader];
+          } else {
+            confirmBtn.classList.add("hidden");
+          }
+        } else {
+          intelPanel.classList.add("hidden");
+          advPanel.classList.add("hidden");
+          waitBox.classList.remove("hidden");
+          waitBox.textContent = `情報文字「${roomState.pendingWord}」已送出，目前正在等待冒險組（隊長：${currentAdvLeader}）選擇探索格子...`;
+        }
+      }
+
+      // 渲染行動紀錄
+      const logBox = document.getElementById("logBox");
+      logBox.innerHTML = (roomState.logs || []).map(line => `
+        <div class="pb-1.5 border-b border-slate-800/70 last:border-none leading-relaxed">${escapeHtml(line)}</div>
+      `).join("");
+
+      renderHexMap(isIntel || roomState.phase === "ended");
+    }
+
+    function renderHexMap(showFullIntel) {
+      const svg = document.getElementById("hexMap");
+      if (!svg || !roomState || !roomState.tiles) return;
+      svg.innerHTML = "";
+
+      const radius = Number(roomState.radius) || 3;
+      const hexSize = radius === 2 ? 52 : radius === 3 ? 40 : 32;
+      const selectableKeys = roomState.phase === "adv" ? getSelectableBlankKeys() : new Set();
+      const chosenKeys = new Set(Object.values(roomState.advChoices || {}));
+
+      function axialToPixel(q, r) {
+        const x = hexSize * Math.sqrt(3) * (q + r / 2);
+        const y = hexSize * 1.5 * r;
+        return { x, y };
+      }
+
+      function hexPoints(cx, cy, size) {
+        const pts = [];
+        for (let i = 0; i < 6; i++) {
+          const angle = (Math.PI / 180) * (60 * i - 30);
+          const px = cx + size * Math.cos(angle);
+          const py = cy + size * Math.sin(angle);
+          pts.push(`${px.toFixed(1)},${py.toFixed(1)}`);
+        }
+        return pts.join(" ");
+      }
+
+      function tileFillColor(tile) {
+        const canSeeKind = showFullIntel || tile.revealed;
+        if (!canSeeKind) return "#1e293b";
+        switch (tile.type) {
+          case "goal": return "#db2777";
+          case "trap": return "#dc2626";
+          case "treasure": return "#059669";
+          default: return "#475569";
+        }
+      }
+
+      for (const tile of roomState.tiles) {
+        const { x, y } = axialToPixel(tile.q, tile.r);
+        const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        const isSelectable = roomState.phase === "adv" && selectableKeys.has(tile.key);
+        g.setAttribute("class", `hex-group ${isSelectable ? "hex-selectable" : ""}`);
+
+        const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+        poly.setAttribute("points", hexPoints(x, y, hexSize - 2));
+        poly.setAttribute("class", "hex-poly");
+        poly.setAttribute("fill", tileFillColor(tile));
+        if (!showFullIntel && !tile.revealed) {
+          poly.setAttribute("fill-opacity", "0.82");
+        }
+        g.appendChild(poly);
+
+        // 若有冒險組成員選中此格，顯示金色標記點
+        if (chosenKeys.has(tile.key)) {
+          const ring = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          ring.setAttribute("cx", x);
+          ring.setAttribute("cy", y - hexSize * 0.48);
+          ring.setAttribute("r", 6);
+          ring.setAttribute("fill", "#facc15");
+          g.appendChild(ring);
+        }
+
+        const topLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        topLabel.setAttribute("x", x);
+        topLabel.setAttribute("y", tile.word ? y - 3 : y + 4);
+        topLabel.setAttribute("text-anchor", "middle");
+        topLabel.setAttribute("fill", "#ffffff");
+        topLabel.setAttribute("font-weight", "700");
+
+        let displayText = "";
+        if (tile.key === roomState.goalKey && (showFullIntel || tile.revealed)) {
+          displayText = tile.word ? `終·${tile.word}` : "出口";
+        } else if (tile.word) {
+          displayText = tile.word;
+        } else if (showFullIntel) {
+          const mapName = { trap: "陷阱-2", treasure: "+2寶藏", normal: "普通", goal: "出口" };
+          displayText = mapName[tile.type] || "";
+        } else {
+          displayText = isSelectable ? "可選" : "";
+        }
+
+        const len = displayText.length;
+        const baseFont = radius === 4 ? 10 : 12;
+        const fontSize = len >= 6 ? baseFont - 3 : len >= 4 ? baseFont - 2 : baseFont;
+        topLabel.setAttribute("font-size", String(Math.max(8, fontSize)));
+        topLabel.textContent = displayText;
+        g.appendChild(topLabel);
+
+        // 顯示格子種類副標（僅在有放詞且可看穿種類時顯示，開局三詞不重複標示）
+        const isStarterTile = (roomState.starterKeys || []).includes(tile.key);
+        if (tile.word && (showFullIntel || tile.revealed) && !isStarterTile) {
+          const subLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          subLabel.setAttribute("x", x);
+          subLabel.setAttribute("y", y + (radius === 4 ? 10 : 13));
+          subLabel.setAttribute("text-anchor", "middle");
+          subLabel.setAttribute("fill", "#fde68a");
+          subLabel.setAttribute("font-size", radius === 4 ? "8" : "9.5");
+          const kindShort = { trap: "陷阱-2", treasure: "寶藏+2", normal: "普通", goal: "出口" }[tile.type] || "";
+          subLabel.textContent = `[${kindShort}]`;
+          g.appendChild(subLabel);
+        }
+
+        g.addEventListener("click", () => handleHexClick(tile));
+        svg.appendChild(g);
+      }
+    }
+
+    // =========================================================================
+    // 9. 事件監聽與初始化啟動
+    // =========================================================================
+    function handleCreateRoom() {
+      const name = getMyPlayerName();
+      if (!name) return;
+
+      cleanupNetwork();
+      const code = generateRoomCode();
+      localState.roomCode = code;
+      localState.isHost = true;
+
+      const initialWords = pickRandomWordsFromActivePool(3);
+      const newRoom = {
+        roomCode: code,
+        screen: "lobby",
+        radius: 3,
+        starterWords: initialWords,
+        players: {
+          [name]: { name, team: "intel", online: true }
+        },
+        tiles: [],
+        startKey: "",
+        goalKey: "",
+        starterKeys: [],
+        steps: 10,
+        phase: "intel",
+        outcome: null,
+        intelLeaderIdx: 0,
+        advLeaderIdx: 0,
+        intelSuggestions: [],
+        pendingWord: "",
+        advChoices: {},
+        logs: []
+      };
+
+      saveRoomToStore(newRoom);
+      startLocalChannelListener(code);
+      initHostPeer(code);
+      renderAll();
+      showToast(`已建立房間 ${code}！分享房號即可讓朋友跨裝置加入`);
+    }
+
+    async function handleJoinRoom() {
+      const name = getMyPlayerName();
+      if (!name) return;
+
+      const codeInput = document.getElementById("joinRoomCodeInput");
+      const code = (codeInput ? codeInput.value : "").trim().toUpperCase();
+      if (!code || code.length < 4) {
+        showToast("請輸入有效的 6 碼房間代碼！");
+        if (codeInput) codeInput.focus();
+        return;
+      }
+
+      cleanupNetwork();
+      localState.roomCode = code;
+      localState.isHost = false;
+
+      // 先檢查同瀏覽器是否已有該房間資料
+      const existingLocal = loadRoomFromStore(code);
+      if (existingLocal) {
+        if (!existingLocal.players) existingLocal.players = {};
+        if (existingLocal.players[name]) {
+          existingLocal.players[name].online = true;
+        } else {
+          const allP = Object.values(existingLocal.players);
+          const intelLen = allP.filter(p => p.team === "intel").length;
+          const advLen = allP.filter(p => p.team === "adv").length;
+          existingLocal.players[name] = {
+            name,
+            team: intelLen <= advLen ? "intel" : "adv",
+            online: true
+          };
+        }
+        saveRoomToStore(existingLocal);
+        startLocalChannelListener(code);
+        renderAll();
+        showToast(`已加入房間 ${code}！`);
+        return;
+      }
+
+      // 跨裝置連線至遠端房主
+      showToast(`正在連線至房間 ${code}...`);
+      try {
+        await connectToRemoteHost(code, name);
+        startLocalChannelListener(code);
+        renderAll();
+        showToast(`成功連線至房間 ${code}！`);
+      } catch (err) {
+        localState.roomCode = "";
+        roomState = null;
+        showToast(err && err.message ? err.message : "無法加入該房間，請確認房號是否正確");
+      }
+    }
+
+    document.getElementById("createRoomBtn").addEventListener("click", handleCreateRoom);
+    document.getElementById("joinRoomBtn").addEventListener("click", handleJoinRoom);
+
+    document.getElementById("copyRoomCodeBtn").addEventListener("click", () => {
+      if (!roomState || !roomState.roomCode) return;
+      const temp = document.createElement("input");
+      temp.value = roomState.roomCode;
+      document.body.appendChild(temp);
+      temp.select();
+      document.execCommand("copy");
+      document.body.removeChild(temp);
+      showToast(`已複製房號：${roomState.roomCode}`);
+    });
+
+    document.getElementById("backToLobbyBtn").addEventListener("click", () => {
+      if (!roomState) return;
+      roomState.screen = "lobby";
+      saveRoomToStore(roomState);
+      renderAll();
+    });
+
+    document.getElementById("leaveRoomBtn").addEventListener("click", () => {
+      cleanupNetwork();
+      localState.roomCode = "";
+      roomState = null;
+      renderAll();
+      showToast("已返回入口頁，可重新設定 ID 或加入其他房間");
+    });
+
+    document.getElementById("joinIntelTeamBtn").addEventListener("click", () => switchMyTeam("intel"));
+    document.getElementById("joinAdvTeamBtn").addEventListener("click", () => switchMyTeam("adv"));
+
+    document.getElementById("mapRadiusSelect").addEventListener("change", (e) => {
+      if (!roomState) return;
+      roomState.radius = Number(e.target.value);
+      saveRoomToStore(roomState);
+    });
+
+    document.getElementById("selectAllCatsBtn").addEventListener("click", () => {
+      Object.keys(WORD_CATEGORIES).forEach(k => localState.enabledCats.add(k));
+      localState.enabledCats.add("custom");
+      saveCustomPreferences();
+      renderCategoryControls();
+    });
+
+    document.getElementById("clearAllCatsBtn").addEventListener("click", () => {
+      localState.enabledCats.clear();
+      saveCustomPreferences();
+      renderCategoryControls();
+    });
+
+    document.getElementById("importCustomWordsBtn").addEventListener("click", () => {
+      const box = document.getElementById("batchCustomInput");
+      const raw = box.value.trim();
+      if (!raw) return;
+      const items = raw
+        .split(/[,，、\s\n\r\t]+/)
+        .map(s => s.trim())
+        .filter(s => s.length > 0 && s.length <= 8);
+
+      if (items.length === 0) {
+        showToast("未偵測到有效詞語（單詞上限 8 字）");
+        return;
+      }
+
+      const merged = new Set([...localState.customWords, ...items]);
+      localState.customWords = [...merged];
+      localState.enabledCats.add("custom");
+      box.value = "";
+      saveCustomPreferences();
+      renderCategoryControls();
+      showToast(`已成功匯入 ${items.length} 個詞語！`);
+    });
+
+    document.getElementById("clearCustomWordsBtn").addEventListener("click", () => {
+      localState.customWords = [];
+      saveCustomPreferences();
+      renderCategoryControls();
+      showToast("已清空本機自訂詞庫");
+    });
+
+    document.getElementById("lobbyRandomWordsBtn").addEventListener("click", () => {
+      const words = pickRandomWordsFromActivePool(3);
+      words.forEach((w, i) => {
+        document.getElementById(`lobbyWord${i}`).value = w;
+      });
+      if (roomState) {
+        roomState.starterWords = words;
+        saveRoomToStore(roomState);
+      }
+      showToast(`已抽出新三詞：${words.join("、")}`);
+    });
+
+    [0, 1, 2].forEach(idx => {
+      document.getElementById(`lobbyWord${idx}`).addEventListener("input", (e) => {
+        if (!roomState) return;
+        if (!Array.isArray(roomState.starterWords)) roomState.starterWords = ["", "", ""];
+        roomState.starterWords[idx] = e.target.value.trim();
+        saveRoomToStore(roomState);
+      });
+    });
+
+    document.getElementById("startGameBtn").addEventListener("click", () => {
+      if (!roomState) return;
+      const words = [0, 1, 2].map(i => document.getElementById(`lobbyWord${i}`).value.trim() || `詞語${i + 1}`);
+      roomState.starterWords = words;
+      roomState.radius = Number(document.getElementById("mapRadiusSelect").value);
+      generateHexMapForRoom(roomState);
+      saveRoomToStore(roomState);
+      renderAll();
+    });
+
+    document.getElementById("restartMatchBtn").addEventListener("click", () => {
+      if (!roomState) return;
+      const newWords = pickRandomWordsFromActivePool(3);
+      roomState.starterWords = newWords;
+      generateHexMapForRoom(roomState);
+      saveRoomToStore(roomState);
+      renderAll();
+      showToast("已重新生成新迷宮！");
+    });
+
+    document.getElementById("addIntelSuggestionBtn").addEventListener("click", () => {
+      if (!roomState || roomState.phase !== "intel") return;
+      const input = document.getElementById("intelSuggestionInput");
+      const text = input.value.trim();
+      if (!text) return;
+
+      if (!roomState.intelSuggestions) roomState.intelSuggestions = [];
+      roomState.intelSuggestions.push({ member: localState.playerName, text });
+      input.value = "";
+      appendRoomLog(roomState, `${localState.playerName} 建議情報文字：「${text}」。`);
+      saveRoomToStore(roomState);
+      renderAll();
+    });
+
+    document.getElementById("confirmIntelWordBtn").addEventListener("click", () => {
+      if (!roomState || roomState.phase !== "intel") return;
+      const input = document.getElementById("intelFinalInput");
+      const word = input.value.trim();
+      if (!word) {
+        showToast("請輸入要給冒險組的文字！");
+        return;
+      }
+
+      const intelMembers = getTeamMembers("intel");
+      const leader = intelMembers.length > 0 ? intelMembers[roomState.intelLeaderIdx % intelMembers.length] : localState.playerName;
+
+      roomState.pendingWord = word;
+      roomState.intelSuggestions = [];
+      roomState.intelLeaderIdx = (roomState.intelLeaderIdx + 1) % Math.max(1, intelMembers.length);
+      roomState.phase = "adv";
+      roomState.advChoices = {};
+      input.value = "";
+
+      appendRoomLog(roomState, `情報隊長 ${leader} 確認送出文字「${word}」，輪到冒險組行動。`);
+      saveRoomToStore(roomState);
+      renderAll();
+    });
+
+    document.getElementById("confirmAdvExploreBtn").addEventListener("click", () => {
+      if (!roomState || roomState.phase !== "adv") return;
+      const advMembers = getTeamMembers("adv");
+      const leader = advMembers.length > 0 ? advMembers[roomState.advLeaderIdx % advMembers.length] : localState.playerName;
+      const targetKey = (roomState.advChoices || {})[leader];
+      if (!targetKey) return;
+
+      const tile = (roomState.tiles || []).find(t => t.key === targetKey);
+      if (!tile) return;
+
+      tile.word = roomState.pendingWord;
+      tile.revealed = true;
+      roomState.steps += tile.delta;
+
+      const kindNames = {
+        trap: `陷阱格（步數 ${tile.delta}）`,
+        treasure: `寶藏格（步數 +${tile.delta}）`,
+        normal: `普通格（步數 ${tile.delta}）`,
+        goal: `出口格（步數 ${tile.delta}）`
+      };
+      appendRoomLog(
+        roomState,
+        `冒險隊長 ${leader} 探索 (${tile.q},${tile.r}) 放上「${roomState.pendingWord}」——揭曉為【${kindNames[tile.type]}】，剩餘 ${roomState.steps} 步。`
+      );
+
+      roomState.pendingWord = "";
+      roomState.advChoices = {};
+      roomState.advLeaderIdx = (roomState.advLeaderIdx + 1) % Math.max(1, advMembers.length);
+
+      if (tile.key === roomState.goalKey && roomState.steps >= 0) {
+        roomState.phase = "ended";
+        roomState.outcome = "win";
+        appendRoomLog(roomState, "冒險組成功抵達出口，全員勝利！");
+      } else if (roomState.steps <= 0) {
+        roomState.steps = 0;
+        roomState.phase = "ended";
+        roomState.outcome = "lose";
+        appendRoomLog(roomState, "剩餘步數耗盡，探險失敗。");
+      } else {
+        roomState.phase = "intel";
+      }
+
+      saveRoomToStore(roomState);
+      renderAll();
+    });
+
+    window.addEventListener("DOMContentLoaded", () => {
+      loadSavedPreferences();
+      renderCategoryControls();
+      renderAll();
+    });
+  </script>
+</body>
+</html>
